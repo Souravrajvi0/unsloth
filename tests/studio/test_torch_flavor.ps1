@@ -15,7 +15,7 @@ $tokens = $null; $errors = $null
 $ast = [System.Management.Automation.Language.Parser]::ParseFile($installPath, [ref]$tokens, [ref]$errors)
 if ($errors) { $errors | ForEach-Object { $_.ToString() }; throw "install.ps1 has parse errors" }
 
-foreach ($name in @("ConvertTo-TorchFlavorTag", "Get-ExpectedTorchFlavorTag", "Trim-IndexPathSlashes", "Redact-InstallOutput")) {
+foreach ($name in @("ConvertTo-TorchFlavorTag", "Get-ExpectedTorchFlavorTag", "Trim-IndexPathSlashes", "Redact-InstallOutput", "Remove-IndexUrlCredentials")) {
     $fn = $ast.FindAll({ param($n)
         $n -is [System.Management.Automation.Language.FunctionDefinitionAst] -and $n.Name -eq $name
     }, $true)
@@ -61,6 +61,24 @@ Check "query value redacted"             ((Redact-InstallOutput "https://host/wh
 Check "fragment token redacted"          ((Redact-InstallOutput "ERROR https://mirror.local/whl/cu128#token=SECRET123 (403)") -eq "ERROR https://mirror.local/whl/cu128#<redacted> (403)")
 Check "bare hash comment untouched"      ((Redact-InstallOutput "# retrying with --no-cache-dir") -eq "# retrying with --no-cache-dir")
 Check "plain line untouched"             ((Redact-InstallOutput "Resolved 42 packages in 1.2s") -eq "Resolved 42 packages in 1.2s")
+
+Write-Host "Remove-IndexUrlCredentials (install.ps1 parity: culture-invariant URL parse)"
+Check "plain pytorch index url"          ((Remove-IndexUrlCredentials "https://download.pytorch.org/whl/cu130") -eq "https://download.pytorch.org/whl/cu130")
+Check "strips userinfo"                  ((Remove-IndexUrlCredentials "https://alice:secret@download.pytorch.org/whl/cu130") -eq "https://download.pytorch.org/whl/cu130")
+Check "strips query fragment"            ((Remove-IndexUrlCredentials "https://download.pytorch.org/whl/cu130?token=abc#frag") -eq "https://download.pytorch.org/whl/cu130")
+
+$prevCulture = [System.Threading.Thread]::CurrentThread.CurrentCulture
+$prevUICulture = [System.Threading.Thread]::CurrentThread.CurrentUICulture
+try {
+    $thai = [System.Globalization.CultureInfo]::GetCultureInfo('th-TH')
+    [System.Threading.Thread]::CurrentThread.CurrentCulture = $thai
+    [System.Threading.Thread]::CurrentThread.CurrentUICulture = $thai
+    Check "th-TH culture plain https url" ((Remove-IndexUrlCredentials "https://download.pytorch.org/whl/cu130") -eq "https://download.pytorch.org/whl/cu130")
+    Check "th-TH culture strips userinfo"  ((Remove-IndexUrlCredentials "https://alice:secret@download.pytorch.org/whl/cu130") -eq "https://download.pytorch.org/whl/cu130")
+} finally {
+    [System.Threading.Thread]::CurrentThread.CurrentCulture = $prevCulture
+    [System.Threading.Thread]::CurrentThread.CurrentUICulture = $prevUICulture
+}
 
 Write-Host ""
 if ($failures -gt 0) { Write-Host "$failures check(s) FAILED" -ForegroundColor Red; exit 1 }
