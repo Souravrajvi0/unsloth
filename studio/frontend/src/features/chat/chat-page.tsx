@@ -2206,7 +2206,7 @@ export function ChatPage({
           config: meta?.config,
           nativePathToken: meta?.nativePathToken,
           nativePathExpiresAtMs: meta?.nativePathExpiresAtMs,
-          forceReload: isSameLoadedModel || undefined,
+          forceReload: meta?.forceReload ?? (isSameLoadedModel || undefined),
         };
         await stageOrLoad(selection);
       })();
