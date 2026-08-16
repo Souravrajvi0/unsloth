@@ -19,8 +19,27 @@ export function resolveToolCallPartId(
 
 export interface StreamedToolCallPart {
   toolCallId: string;
+  /** Provider wire id when `toolCallId` was minted for UI store isolation. */
+  _wire_tool_call_id?: string;
   _delta_index?: number;
   _has_stable_id?: boolean;
+}
+
+/** Mint suffix the chat adapter adds so repeated backend ids do not collide in the UI. */
+const MINTED_TOOL_CALL_ID_RE =
+  /^(.+):[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
+
+/**
+ * Id providers expect on replay. UI cards use minted ids (`call_0:<uuid>`); outbound
+ * history must use the wire id the backend and cloud APIs paired with tool results.
+ */
+export function wireToolCallIdForReplay(
+  toolCallId: string,
+  wireToolCallId?: string,
+): string {
+  if (wireToolCallId) return wireToolCallId;
+  const match = MINTED_TOOL_CALL_ID_RE.exec(toolCallId);
+  return match ? match[1] : toolCallId;
 }
 
 /**

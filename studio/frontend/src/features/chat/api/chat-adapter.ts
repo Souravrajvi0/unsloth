@@ -86,6 +86,7 @@ import { toolCallReplayArguments } from "../tool-call-arguments";
 import {
   findStreamedToolCallPartIndex,
   resolveToolCallPartId,
+  wireToolCallIdForReplay,
 } from "../tool-call-id";
 
 import { buildResearchInferenceRequest } from "../research-inference-request";
@@ -983,8 +984,12 @@ function serializeAssistantToolCallPart(
   }
 
   const argumentsStr = toolCallReplayArguments(tc.argsText, tc.args);
+  const replayId = wireToolCallIdForReplay(
+    tc.toolCallId,
+    (tc as { _wire_tool_call_id?: string })._wire_tool_call_id,
+  );
   const entry: SerializedToolCall = {
-    id: tc.toolCallId,
+    id: replayId,
     type: "function" as const,
     function: {
       name: tc.toolName ?? "",
@@ -1098,7 +1103,10 @@ function serializeToolResultPart(
   return {
     role: "tool" as const,
     content,
-    tool_call_id: tc.toolCallId,
+    tool_call_id: wireToolCallIdForReplay(
+      tc.toolCallId,
+      (tc as { _wire_tool_call_id?: string })._wire_tool_call_id,
+    ),
     ...(tc.toolName ? { name: tc.toolName } : {}),
   };
 }
@@ -4655,6 +4663,7 @@ export function createOpenAIStreamAdapter(
       };
       type PositionedToolCallPart = ToolCallMessagePart & {
         textCursor?: number;
+        _wire_tool_call_id?: string;
         _delta_index?: number;
         _has_stable_id?: boolean;
         extra_content?: unknown;
@@ -5663,6 +5672,9 @@ export function createOpenAIStreamAdapter(
                       toolName: toolEvent.tool_name as string,
                       argsText: JSON.stringify(toolArgs),
                       args: toolArgs,
+                      ...(backendToolCallId
+                        ? { _wire_tool_call_id: backendToolCallId }
+                        : {}),
                       provenance: mergeToolProvenance(
                         existing.provenance,
                         toolProvenance,
@@ -5676,6 +5688,9 @@ export function createOpenAIStreamAdapter(
                       argsText: JSON.stringify(toolArgs),
                       args: toolArgs,
                       textCursor: cumulativeText.length,
+                      ...(backendToolCallId
+                        ? { _wire_tool_call_id: backendToolCallId }
+                        : {}),
                       ...(toolProvenance ? { provenance: toolProvenance } : {}),
                     } as PositionedToolCallPart);
                   }
@@ -6099,9 +6114,9 @@ export function createOpenAIStreamAdapter(
 
                   if (
                     stablePartId &&
-                    !codexRoundToolCallIds.includes(stablePartId)
+                    !codexRoundToolCallIds.includes(stableId ?? stablePartId)
                   ) {
-                    codexRoundToolCallIds.push(stablePartId);
+                    codexRoundToolCallIds.push(stableId ?? stablePartId);
                   }
                   const argsFragment = call.function?.arguments ?? "";
                   streamedChars +=
@@ -6141,6 +6156,7 @@ export function createOpenAIStreamAdapter(
                       ...(stablePartId
                         ? { toolCallId: stablePartId, _has_stable_id: true }
                         : {}),
+                      ...(stableId ? { _wire_tool_call_id: stableId } : {}),
                       toolName: nextName,
                       argsText: merged,
                       args: parsedArgs,
@@ -6155,9 +6171,10 @@ export function createOpenAIStreamAdapter(
                   } else {
                     const callId =
                       stablePartId || `tool_call_${idx ?? toolCallParts.length}`;
+                    const codexLedgerId = stableId ?? callId;
 
-                    if (!codexRoundToolCallIds.includes(callId)) {
-                      codexRoundToolCallIds.push(callId);
+                    if (!codexRoundToolCallIds.includes(codexLedgerId)) {
+                      codexRoundToolCallIds.push(codexLedgerId);
                     }
                     const argsText = argsFragment;
                     let parsedArgs: ToolCallMessagePart["args"] = {};
@@ -6179,6 +6196,7 @@ export function createOpenAIStreamAdapter(
                       argsText,
                       args: parsedArgs,
                       textCursor: cumulativeText.length,
+                      ...(stableId ? { _wire_tool_call_id: stableId } : {}),
                       ...(call.extra_content !== undefined
                         ? { extra_content: call.extra_content }
                         : {}),
