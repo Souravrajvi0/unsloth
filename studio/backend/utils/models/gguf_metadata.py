@@ -573,10 +573,19 @@ def pairing_score(
     return 0
 
 
+# llama_pooling_type values from llama.cpp (include/llama.h).
+_POOLING_NONE = 0
+_POOLING_MEAN = 1
+_POOLING_CLS = 2
+_POOLING_LAST = 3
+_POOLING_RANK = 4
+_EMBEDDING_POOLING_TYPES: frozenset[int] = frozenset({_POOLING_MEAN, _POOLING_CLS, _POOLING_LAST})
+
 # GGUF ``general.architecture`` values that only serve embeddings in llama.cpp.
+# Generic ``bert`` is omitted: rerankers share that arch and are gated on
+# ``{arch}.pooling_type`` (RANK) instead of name substrings.
 GGUF_EMBEDDING_ARCHITECTURES: frozenset[str] = frozenset(
     {
-        "bert",
         "modern-bert",
         "nomic-bert",
         "nomic-bert-moe",
@@ -589,6 +598,7 @@ GGUF_EMBEDDING_ARCHITECTURES: frozenset[str] = frozenset(
         "llama-embed",
     }
 )
+_GGUF_GENERIC_BERT_ARCH = "bert"
 
 # Name hints for model, file and intrinsic GGUF names whose architecture is not yet above.
 _EMBEDDING_NAME_HINTS: tuple[str, ...] = (
@@ -602,6 +612,83 @@ _EMBEDDING_NAME_HINTS: tuple[str, ...] = (
     "minilm",
 )
 _RERANKER_NAME_HINTS: tuple[str, ...] = ("reranker", "rerank")
+
+
+def _parse_gguf_pooling_type(path: str) -> Optional[int]:
+    """Read ``{arch}.pooling_type`` regardless of KV order in the header."""
+    arch: Optional[str] = None
+    pooling_by_key: Dict[str, int] = {}
+    try:
+        with open(path, "rb") as f:
+            head = f.read(24)
+            if len(head) < 24:
+                return None
+            magic, _version, _tcount, kv_count = struct.unpack("<IIQQ", head)
+            if magic != _GGUF_MAGIC:
+                return None
+
+            for _ in range(kv_count):
+                try:
+                    klen_bytes = f.read(8)
+                    if len(klen_bytes) < 8:
+                        break
+                    klen = struct.unpack("<Q", klen_bytes)[0]
+                    if klen > 1 << 20:
+                        break
+                    kbytes = f.read(klen)
+                    if len(kbytes) < klen:
+                        break
+                    key = kbytes.decode("utf-8", "replace")
+                    vt_bytes = f.read(4)
+                    if len(vt_bytes) < 4:
+                        break
+                    vtype = struct.unpack("<I", vt_bytes)[0]
+
+                    if vtype == 8 and key == "general.architecture":
+                        slen_bytes = f.read(8)
+                        if len(slen_bytes) < 8:
+                            break
+                        slen = struct.unpack("<Q", slen_bytes)[0]
+                        if slen > 1 << 22:
+                            break
+                        sbytes = f.read(slen)
+                        if len(sbytes) < slen:
+                            break
+                        arch = sbytes.decode("utf-8", "replace")
+                    elif vtype in (4, 10) and key.endswith(".pooling_type"):
+                        width = 4 if vtype == 4 else 8
+                        n_bytes = f.read(width)
+                        if len(n_bytes) < width:
+                            break
+                        pooling_by_key[key] = struct.unpack(
+                            "<I" if vtype == 4 else "<Q", n_bytes
+                        )[0]
+                    else:
+                        if not _skip_gguf_value(f, vtype):
+                            break
+                except (struct.error, UnicodeDecodeError):
+                    break
+    except OSError as e:
+        logger.debug(f"_parse_gguf_pooling_type: cannot open {path}: {e}")
+        return None
+    except Exception as e:
+        logger.debug(f"_parse_gguf_pooling_type: parse failure on {path}: {e}")
+        return None
+
+    if arch is not None:
+        matched = pooling_by_key.get(f"{arch}.pooling_type")
+        if matched is not None:
+            return matched
+    if len(pooling_by_key) == 1:
+        return next(iter(pooling_by_key.values()))
+    return None
+
+
+def read_gguf_pooling_type(path: str) -> Optional[int]:
+    """``{arch}.pooling_type`` from a GGUF header, or ``None`` when absent/unreadable."""
+    if not path:
+        return None
+    return _parse_gguf_pooling_type(path)
 
 
 def is_gguf_embedding_architecture(architecture: Optional[str]) -> bool:
@@ -638,10 +725,20 @@ def is_gguf_embedding_model(
         meta.get("general.basename"),
         meta.get("general.base_model.0.name"),
     )
+    arch = (architecture or meta.get("general.architecture") or "").strip().lower()
+    pooling_type = read_gguf_pooling_type(gguf_path)
+    if pooling_type == _POOLING_RANK:
+        return False
+    if pooling_type == _POOLING_NONE:
+        return False
+    if pooling_type in _EMBEDDING_POOLING_TYPES:
+        return True
+
     if any(_has_reranker_name_hint(value) for value in name_candidates):
         return False
 
-    arch = (architecture or meta.get("general.architecture") or "").strip().lower()
-    return is_gguf_embedding_architecture(arch) or any(
-        _has_embedding_name_hint(value) for value in name_candidates
-    )
+    if is_gguf_embedding_architecture(arch):
+        return True
+    if arch == _GGUF_GENERIC_BERT_ARCH:
+        return False
+    return any(_has_embedding_name_hint(value) for value in name_candidates)

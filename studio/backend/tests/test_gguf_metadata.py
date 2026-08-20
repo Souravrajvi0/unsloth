@@ -20,6 +20,7 @@ from utils.models.gguf_metadata import (
     read_gguf_architecture,
     read_gguf_context_length,
     read_gguf_general_metadata,
+    read_gguf_pooling_type,
     read_gguf_staged_dims,
     read_mmproj_audio_capability,
 )
@@ -630,3 +631,38 @@ def test_is_gguf_embedding_model_excludes_reranker_without_pooling(tmp_path: Pat
         is_gguf_embedding_model(str(p), model_identifier = "gpustack/bge-reranker-v2-m3-GGUF")
         is False
     )
+
+
+def test_is_gguf_embedding_model_excludes_bert_reranker_by_pooling_type(tmp_path: Path):
+    p = _write_synthetic_gguf(
+        tmp_path / "cross-encoder-m3-Q4_K_M.gguf",
+        {"general.architecture": "bert", "general.name": "Cross Encoder M3"},
+        extra_uint32 = {"bert.pooling_type": 4},
+    )
+    assert is_gguf_embedding_model(str(p), model_identifier = "org/cross-encoder-m3-GGUF") is False
+
+
+def test_is_gguf_embedding_model_accepts_bert_embedder_by_pooling_type(tmp_path: Path):
+    p = _write_synthetic_gguf(
+        tmp_path / "encoder-m3-Q4_K_M.gguf",
+        {"general.architecture": "bert", "general.name": "Encoder M3"},
+        extra_uint32 = {"bert.pooling_type": 2},
+    )
+    assert is_gguf_embedding_model(str(p), model_identifier = "org/encoder-m3-GGUF") is True
+
+
+def test_is_gguf_embedding_model_generic_bert_without_pooling_is_not_embedding(tmp_path: Path):
+    p = _write_synthetic_gguf(
+        tmp_path / "model-Q4_K_M.gguf",
+        {"general.architecture": "bert", "general.name": "Some Bert"},
+    )
+    assert is_gguf_embedding_model(str(p), model_identifier = "org/some-bert-GGUF") is False
+
+
+def test_read_gguf_pooling_type_before_architecture(tmp_path: Path):
+    p = _write_synthetic_gguf(
+        tmp_path / "ordered.gguf",
+        {"general.architecture": "bert"},
+        extra_uint32 = {"bert.pooling_type": 1},
+    )
+    assert read_gguf_pooling_type(str(p)) == 1
