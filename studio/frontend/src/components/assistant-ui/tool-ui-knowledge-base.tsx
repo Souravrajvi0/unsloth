@@ -18,6 +18,7 @@ import {
   ToolFallbackRoot,
   ToolFallbackTrigger,
 } from "./tool-fallback";
+import { toolArgText } from "./tool-arg-text";
 import { useDocumentPreviewStore } from "@/features/rag/components/preview-store";
 
 import { type Citation, parseCitations } from "./citation-utils";
@@ -76,7 +77,7 @@ const KnowledgeBaseToolUIImpl: ToolCallMessagePartComponent = ({
   result,
   status,
 }) => {
-  const query = (args as { query?: string })?.query ?? "";
+  const query = toolArgText((args as { query?: unknown })?.query);
   const isRunning = status?.type === "running";
 
   const resultText = result == null ? "" : stringifyToolResult(result);

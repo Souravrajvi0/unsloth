@@ -9,6 +9,7 @@ import { GlobeIcon } from "lucide-react";
 import { stringifyToolResult } from "@/lib/strip-ansi";
 import { memo, useEffect, useState } from "react";
 import { Source, SourceIcon, SourceTitle } from "./sources";
+import { toolArgText } from "./tool-arg-text";
 import {
   ToolFallbackContent,
   ToolFallbackRoot,
@@ -81,8 +82,8 @@ const WebSearchToolUIImpl: ToolCallMessagePartComponent = ({
   result,
   status,
 }) => {
-  const query = (args as { query?: string })?.query ?? "";
-  const url = ((args as { url?: string })?.url ?? "").trim();
+  const query = toolArgText((args as { query?: unknown })?.query);
+  const url = toolArgText((args as { url?: unknown })?.url).trim();
   const isUrlFetch = !!url;
   const displayDomain = (() => {
     if (!url) return "";

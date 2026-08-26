@@ -22,6 +22,7 @@ import { useToolArgsStatus } from "@assistant-ui/react";
 import { CodeIcon } from "lucide-react";
 import { memo, useEffect, useRef, useState } from "react";
 import { pythonToolImagePath } from "./python-tool-image-path";
+import { toolArgText } from "./tool-arg-text";
 import { CopyBtn, ToolCodeCell } from "./tool-code-cell";
 import {
   ToolFallbackContent,
@@ -142,7 +143,7 @@ const PythonToolUIImpl: ToolCallMessagePartComponent = ({
   result,
   status,
 }) => {
-  const code = (args as { code?: string })?.code ?? "";
+  const code = toolArgText((args as { code?: unknown })?.code);
   const firstLine = code.split("\n")[0]?.slice(0, 60) ?? "";
   const isRunning = status?.type === "running";
   // Args still streaming = the model is WRITING the code, not running it yet.

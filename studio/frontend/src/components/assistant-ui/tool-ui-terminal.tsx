@@ -28,6 +28,7 @@ import {
   useToolOutputFor,
   useToolPaneScope,
 } from "@/features/chat";
+import { toolArgText } from "./tool-arg-text";
 
 const TerminalToolUIImpl: ToolCallMessagePartComponent = ({
   toolCallId,
@@ -35,7 +36,7 @@ const TerminalToolUIImpl: ToolCallMessagePartComponent = ({
   result,
   status,
 }) => {
-  const command = (args as { command?: string })?.command ?? "";
+  const command = toolArgText((args as { command?: unknown })?.command);
   const isRunning = status?.type === "running";
   // Args still streaming = the model is WRITING the command, not running it yet.
   const { propStatus } = useToolArgsStatus();

@@ -20,6 +20,7 @@ import {
   ToolFallbackRoot,
   ToolFallbackTrigger,
 } from "./tool-fallback";
+import { toolArgText } from "./tool-arg-text";
 
 /**
  * Renders synthetic `_toolEvent` chunks from `_stream_anthropic` for the
@@ -134,8 +135,8 @@ const CodeExecutionToolUIImpl: ToolCallMessagePartComponent = ({
 }) => {
   const parsedArgs = (args as CodeExecutionArgs) ?? {};
   const kind = parsedArgs.kind ?? "bash";
-  const command = parsedArgs.command ?? "";
-  const path = parsedArgs.path ?? "";
+  const command = toolArgText(parsedArgs.command);
+  const path = toolArgText(parsedArgs.path);
   const isRunning = status?.type === "running";
 
   const commandLabel = command ? truncateCommandLabel(command) : "";

@@ -4486,7 +4486,8 @@ def _web_search_fetches_url(name: str, arguments: dict) -> bool:
     set, so it asks even though plain search stays always-safe. Name-only
     ``is_always_safe_tool`` is deliberately unchanged: it runs before arguments exist
     (provisional card, stream requirement), where a query-only search must not prompt."""
-    return name == "web_search" and bool(str(arguments.get("url", "") or "").strip())
+    url = arguments.get("url", "")
+    return name == "web_search" and isinstance(url, str) and bool(url.strip())
 
 
 def is_potentially_unsafe_tool_call(name: str, arguments: dict) -> bool:
@@ -9149,6 +9150,13 @@ def _render_html_result(arguments: dict) -> str:
     )
 
 
+def _tool_text_arg(value) -> str:
+    """String tool fields only. Local models emit lists/objects/numbers for
+    query/url/code/command; ``str(value)`` would search or write the repr, and
+    ``value.strip()`` raises AttributeError and kills the chat turn."""
+    return value if isinstance(value, str) else ""
+
+
 def execute_tool(
     name: str,
     arguments: dict,
@@ -9239,8 +9247,8 @@ def execute_tool(
         )
     if name == "web_search":
         return _web_search(
-            arguments.get("query", ""),
-            url = arguments.get("url"),
+            _tool_text_arg(arguments.get("query", "")),
+            url = _tool_text_arg(arguments.get("url")) or None,
             timeout = effective_timeout,
             cancel_event = cancel_event,
             website_policy = website_policy,
@@ -9250,7 +9258,7 @@ def execute_tool(
     if name == "python":
         with _session_in_flight(session_id):
             return _python_exec(
-                arguments.get("code", ""),
+                _tool_text_arg(arguments.get("code", "")),
                 cancel_event,
                 effective_timeout,
                 session_id,
@@ -9260,7 +9268,7 @@ def execute_tool(
     if name == "terminal":
         with _session_in_flight(session_id):
             return _bash_exec(
-                arguments.get("command", ""),
+                _tool_text_arg(arguments.get("command", "")),
                 cancel_event,
                 effective_timeout,
                 session_id,

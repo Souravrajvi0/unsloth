@@ -13,6 +13,7 @@ import type { CSSProperties, MouseEvent } from "react";
 import { memo, useCallback, useEffect, useRef, useState } from "react";
 import { useGeneratedImageOverlay } from "./generated-image-overlay-context";
 import { downloadImagePart } from "./image";
+import { toolArgText } from "./tool-arg-text";
 import {
   ToolFallbackContent,
   ToolFallbackRoot,
@@ -159,7 +160,7 @@ const ImageGenerationToolUIImpl: ToolCallMessagePartComponent = ({
 }) => {
   const { openOverlay } = useGeneratedImageOverlay();
   const parsedArgs = (args as ImageGenerationArgs) ?? {};
-  const prompt = parsedArgs.prompt ?? "";
+  const prompt = toolArgText(parsedArgs.prompt);
   const isRunning = status?.type === "running";
 
   const isImageResult =
