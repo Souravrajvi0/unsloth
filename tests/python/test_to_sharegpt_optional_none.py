@@ -1,6 +1,20 @@
 import ast
 import re
+import sys
+import types
 from pathlib import Path
+
+# to_sharegpt imports datasets even on the default (no-extension) path.
+# The tests extract the function without importing unsloth, so stub the
+# module unless a real install is already present.
+if "datasets" not in sys.modules:
+    _datasets_stub = types.ModuleType("datasets")
+
+    def _concatenate_datasets(*_args, **_kwargs):
+        raise RuntimeError("concatenate_datasets is only used when conversation_extension > 1")
+
+    _datasets_stub.concatenate_datasets = _concatenate_datasets
+    sys.modules["datasets"] = _datasets_stub
 
 
 def _load_formatter_builders():
@@ -95,3 +109,136 @@ def test_optional_block_falsy_but_present_gating_value_still_renders():
     merged_prompt = "Count: [[{n}]]!"
     out = _render(merged_prompt, ["n"], {"n": [0]})
     assert out[0] == "Count: 0!"
+
+
+def _load_to_sharegpt():
+    # Same trick as above: pull to_sharegpt and the two helpers it calls out of
+    # the source without importing unsloth.
+    source = Path(__file__).parents[2] / "unsloth" / "chat_templates.py"
+    tree = ast.parse(source.read_text(encoding = "utf-8"))
+    wanted = {"_parse_combined_prompt", "_create_formatter", "to_sharegpt"}
+    funcs = [
+        node for node in tree.body if isinstance(node, ast.FunctionDef) and node.name in wanted
+    ]
+    namespace = {"re": re}
+    module = ast.Module(body = funcs, type_ignores = [])
+    ast.fix_missing_locations(module)
+    exec(compile(module, str(source), "exec"), namespace)
+    return namespace["to_sharegpt"]
+
+
+class _MapDataset:
+    """Minimal batched-map stand-in for HuggingFace Dataset used by to_sharegpt."""
+
+    def __init__(self, columns):
+        lengths = {len(values) for values in columns.values()}
+        if len(lengths) != 1:
+            raise ValueError("column lengths must match")
+        self._columns = {name: list(values) for name, values in columns.items()}
+
+    @property
+    def column_names(self):
+        return list(self._columns)
+
+    def __len__(self):
+        return len(next(iter(self._columns.values()))) if self._columns else 0
+
+    def __getitem__(self, key):
+        if isinstance(key, int):
+            return {name: values[key] for name, values in self._columns.items()}
+        return list(self._columns[key])
+
+    def __iter__(self):
+        for index in range(len(self)):
+            yield self[index]
+
+    def map(self, function, batched = True, desc = None, remove_columns = None):
+        examples = {name: list(values) for name, values in self._columns.items()}
+        merged = dict(examples)
+        merged.update(function(examples))
+        if remove_columns:
+            for name in remove_columns:
+                merged.pop(name, None)
+        return _MapDataset(merged)
+
+
+def _alpaca():
+    return _MapDataset(
+        {
+            "instruction": ["What is 2+2?", "Capital of France?"],
+            "output": ["4", "Paris"],
+        }
+    )
+
+
+def test_empty_merged_prompt_formatter_would_blank_the_column():
+    # Root cause: an empty merged_prompt still built a formatter whose template
+    # is "", so dataset.map overwrote the real instruction column with "".
+    parse, create = _load_formatter_builders()
+    possible, prompts = parse("", _StubDataset(["instruction", "output"]))
+    processor = create(possible, prompts, "instruction")
+    out = processor({"instruction": ["What is 2+2?"], "output": ["4"]})
+    assert out["instruction"] == [""]
+
+
+def test_default_merged_prompt_keeps_the_input_column():
+    # merged_prompt is optional: without one, merged_column_name names a column
+    # that is already there. The merging map used to run anyway and overwrite it
+    # with empty strings, so every human turn came out blank.
+    to_sharegpt = _load_to_sharegpt()
+    converted = to_sharegpt(_alpaca())
+    users = [row["conversations"][0]["value"] for row in converted]
+    assert users == ["What is 2+2?", "Capital of France?"]
+
+
+def test_default_merged_prompt_with_renamed_columns():
+    to_sharegpt = _load_to_sharegpt()
+    dataset = _MapDataset({"Query": ["123?"], "Answer": ["456"]})
+    converted = to_sharegpt(
+        dataset,
+        merged_column_name = "Query",
+        output_column_name = "Answer",
+    )
+    assert converted[0]["conversations"] == [
+        {"from": "human", "value": "123?"},
+        {"from": "gpt", "value": "456"},
+    ]
+
+
+def test_explicit_merged_prompt_still_merges():
+    to_sharegpt = _load_to_sharegpt()
+    dataset = _MapDataset({"instruction": ["Sum"], "input": ["2+2"], "output": ["4"]})
+    converted = to_sharegpt(dataset, merged_prompt = "{instruction}\n{input}")
+    assert converted[0]["conversations"][0]["value"] == "Sum\n2+2"
+
+
+def test_missing_input_column_says_which_column_is_missing():
+    to_sharegpt = _load_to_sharegpt()
+    dataset = _MapDataset({"prompt": ["hi"], "output": ["yo"]})
+    try:
+        to_sharegpt(dataset)
+    except KeyError as error:
+        assert "instruction" in str(error)
+        assert "prompt" in str(error)
+    else:
+        raise AssertionError("expected a KeyError naming the missing input column")
+
+
+def test_null_cells_do_not_render_as_the_word_none():
+    to_sharegpt = _load_to_sharegpt()
+    dataset = _MapDataset({"instruction": ["ok", None], "output": [None, "fine"]})
+    converted = to_sharegpt(dataset)
+    values = [turn["value"] for row in converted for turn in row["conversations"]]
+
+    assert "None" not in values
+    assert values == ["ok", "", "", "fine"]
+
+
+def test_null_cells_match_the_merged_prompt_path():
+    to_sharegpt = _load_to_sharegpt()
+    rows = {"instruction": ["ok", None], "output": ["a", "b"]}
+
+    merged = to_sharegpt(_MapDataset(rows), merged_prompt = "{instruction}")
+    plain = to_sharegpt(_MapDataset(rows))
+
+    assert [r["conversations"] for r in merged] == [r["conversations"] for r in plain]
