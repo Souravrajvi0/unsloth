@@ -647,20 +647,24 @@ function isRuntimeLoadedModel(
 // follow the UI font scale, and collapse below the picker's full width.
 // min-w-min means a width is the column held open, not a clamp: an outsized
 // badge grows its own slot rather than spilling over the next one.
+//
+// @min-[560px] is a container query against .unsloth-model-selector-menu, not
+// the viewport: the panel is often narrower than the window, and a viewport
+// breakpoint held empty columns open and clipped the names.
 const META_COLUMN = {
   // Fits "UD-Q4_K_XL"; a hard cap, so longer quants clip.
-  quant: "min-[560px]:w-[7.2em]",
+  quant: "@min-[560px]:w-[7.2em]",
   // One capability / vision / downloaded badge.
-  badge: "min-w-min min-[560px]:w-[24px]",
+  badge: "min-w-min @min-[560px]:w-[24px]",
   // The "OOM" pill, wider than bare "TIGHT" (Hub rows).
-  vram: "min-w-min min-[560px]:w-[4em]",
+  vram: "min-w-min @min-[560px]:w-[4em]",
   // "235B" on device rows; Hub rows report "2779.5B", hence paramWide.
-  param: "min-w-min min-[560px]:w-[3.6em]",
-  paramWide: "min-w-min min-[560px]:w-[5.2em]",
+  param: "min-w-min @min-[560px]:w-[3.6em]",
+  paramWide: "min-w-min @min-[560px]:w-[5.2em]",
   // "536 MB".
-  size: "min-w-min min-[560px]:w-[4.2em]",
+  size: "min-w-min @min-[560px]:w-[4.2em]",
   // The format dot that leads the row; the name lives in its tooltip.
-  format: "min-[560px]:w-[14px]",
+  format: "@min-[560px]:w-[14px]",
 } as const;
 
 // One gutter for every row, gear or no gear, so the columns never shift by a
@@ -748,6 +752,8 @@ function ModelRow({
   const caps = capabilities ?? detectCapabilities({ id: label });
   const showCaps = hasAnyCapability(caps);
   const aligned = alignMeta !== undefined;
+  const hasBadgeContent =
+    showCaps || showVision || (Boolean(downloaded) && !loaded);
   // One dot per row. A second format shares the first's colour anyway, so it
   // rides along in the tooltip instead of pushing the name out of line.
   const formatDot = parsed.formats[0]
@@ -807,14 +813,14 @@ function ModelRow({
             dotClassName="size-[5px]"
           />
         )}
-        {alignMeta === "device" ? (
+        {alignMeta === "device" && quantChip ? (
           <span
             className={cn(
               "ml-1.5 flex shrink-0 items-center self-center text-ui-9",
               META_COLUMN.quant,
             )}
           >
-            {quantChip ? <QuantChip label={quantChip} /> : null}
+            <QuantChip label={quantChip} />
           </span>
         ) : quantChip ? (
           <span className="ml-2 shrink-0 rounded-md bg-black/[0.06] px-1.5 py-px font-mono text-ui-10 text-muted-foreground dark:bg-white/[0.1]">
@@ -829,8 +835,10 @@ function ModelRow({
         )}
       >
         {/* Capabilities, vision and the Hub lists' "on disk" mark share one
-            column; two of them widen the slot rather than overlap. */}
-        {aligned ? (
+            column; two of them widen the slot rather than overlap. Skip the
+            slot when this row has nothing for it, so empty width does not
+            clip the name (custom-folder GGUFs have a param chip and no badge). */}
+        {aligned && hasBadgeContent ? (
           <span
             className={cn(
               "flex shrink-0 items-center justify-center gap-1 text-ui-10",
@@ -841,7 +849,7 @@ function ModelRow({
             {showVision && <VisionBadge />}
             {downloaded && !loaded ? <DownloadedBadge /> : null}
           </span>
-        ) : (
+        ) : aligned ? null : (
           <>
             {showCaps && <CapabilityIcons caps={caps} />}
             {showVision && <VisionBadge />}
@@ -856,7 +864,7 @@ function ModelRow({
             {downloaded && !loaded ? <DownloadedBadge /> : null}
           </>
         )}
-        {alignMeta === "hub" ? (
+        {alignMeta === "hub" && vramStatus ? (
           <span
             className={cn(
               "flex shrink-0 items-center justify-end text-ui-9",
@@ -865,19 +873,19 @@ function ModelRow({
           >
             <VramBadge status={vramStatus} />
           </span>
-        ) : (
+        ) : alignMeta === "hub" ? null : (
           <VramBadge status={vramStatus} />
         )}
-        {aligned ? (
+        {aligned && paramLabel ? (
           <span
             className={cn(
               "flex shrink-0 justify-end text-ui-10",
               alignMeta === "hub" ? META_COLUMN.paramWide : META_COLUMN.param,
             )}
           >
-            {paramLabel ? <ParamChip label={paramLabel} /> : null}
+            <ParamChip label={paramLabel} />
           </span>
-        ) : paramLabel ? (
+        ) : aligned ? null : paramLabel ? (
           <ParamChip label={paramLabel} />
         ) : null}
         {parsed.texts.map((text) => (
@@ -885,24 +893,27 @@ function ModelRow({
             {text}
           </span>
         ))}
-        {/* GGUF repos hold several quants of different sizes, so their rows
-            report one only once expanded, leaving the column an empty gap. */}
-        {alignMeta === "device" || showSize ? (
-          <span
-            className={cn(
-              "shrink-0 whitespace-nowrap text-right font-mono text-ui-10 text-muted-foreground tabular-nums",
-              META_COLUMN.size,
-            )}
-          >
-            {parsed.size === undefined ? null : (
-              <SizeText value={parsed.size} />
-            )}
-          </span>
-        ) : aligned ? null : parsed.size !== undefined ? (
-          <span className="font-mono text-ui-10 text-muted-foreground tabular-nums">
-            <SizeText value={parsed.size} />
-          </span>
-        ) : null}
+        {/* Only occupy the size column when there is a size to show. An empty
+            reserved gap was clipping custom-folder names that only have a
+            param chip. */}
+        {alignMeta === "device" || showSize
+          ? parsed.size !== undefined && (
+              <span
+                className={cn(
+                  "shrink-0 whitespace-nowrap text-right font-mono text-ui-10 text-muted-foreground tabular-nums",
+                  META_COLUMN.size,
+                )}
+              >
+                <SizeText value={parsed.size} />
+              </span>
+            )
+          : aligned
+            ? null
+            : parsed.size !== undefined && (
+                <span className="font-mono text-ui-10 text-muted-foreground tabular-nums">
+                  <SizeText value={parsed.size} />
+                </span>
+              )}
       </span>
     </button>
   );

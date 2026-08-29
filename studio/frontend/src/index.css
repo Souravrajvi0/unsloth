@@ -328,9 +328,13 @@
 	   All match the h-9 / w-[110px] / 506px they replace at the 16px default. */
 	--picker-control-h: calc(1.125rem + 1.125rem * var(--ui-font-scale, 1));
 	--picker-control-w: calc(2.25rem + 2 * var(--ui-icon-size-sm) + 2.875rem * var(--ui-font-scale, 1));
-	/* Panel: pl-4, two gaps and pr-2, the pills' padding, their two icons and
-	   label, then the two dropdowns. */
-	--picker-panel-w: calc(6.25rem + 2 * var(--ui-icon-size-sm) + 9.875rem * var(--ui-font-scale, 1) + 2 * var(--picker-control-w));
+	/* Panel: at least as wide as the header controls (pills + dropdowns) so
+	   they stay on one line, and at least 40rem so On Device names are not
+	   clipped while meta columns sit empty. The window still caps it. */
+	--picker-panel-w: max(
+		calc(6.25rem + 2 * var(--ui-icon-size-sm) + 9.875rem * var(--ui-font-scale, 1) + 2 * var(--picker-control-w)),
+		40rem
+	);
 	/* Provider row adds one more control; split like the rest. */
 	--picker-panel-w-external: calc(var(--picker-panel-w) + 4rem + 2.75rem * var(--ui-font-scale, 1));
 	/* Inset of a centered .size-icon glyph within a 2rem (size-8) action
