@@ -2959,11 +2959,27 @@ def _build_tool_action_nudge(*, tools: list[dict], model_name: str) -> str:
 # Nudge appended when the RAG knowledge-base tool is active: ground answers in
 # the attached documents instead of model memory.
 _RAG_GROUNDING_NUDGE = (
-    "The user has attached documents to this conversation. Relevant "
-    "passages are retrieved and provided to you automatically; base "
-    "your answer on them and cite them. You can also call "
-    "search_knowledge_base to look for more. Do not answer from "
-    "memory when the attached documents are relevant."
+    "The user has attached documents to this conversation. For questions about "
+    "those documents, call search_knowledge_base before answering. Relevant "
+    "passages may also be retrieved and provided to you automatically; base "
+    "your answer on them and cite them. Do not answer from memory when the "
+    "attached documents are relevant."
+)
+# When web_search is not enabled, keep answers inside the attached corpus.
+_RAG_CLOSED_CORPUS_NUDGE = (
+    "The attached documents form a closed corpus. If the requested information "
+    "is not in search_knowledge_base results or injected passages, say it is "
+    "not available in the attached documents. Do not search the public "
+    "internet or invent facts."
+)
+# When both RAG and web_search are enabled (e.g. the Search pill is on), project
+# sources must still win over an automatic web fallback.
+_RAG_WEB_SEARCH_PRIORITY_NUDGE = (
+    "When both document search and web_search are available, search the "
+    "attached documents with search_knowledge_base first. Use web_search only "
+    "when the user explicitly asks for current events, live data, or "
+    "information outside the attached documents—not as an automatic fallback "
+    "when a document search finds no match."
 )
 
 
@@ -2995,16 +3011,30 @@ async def _select_request_tools(
 
 def _apply_rag_nudge(nudge: str, tools: list[dict], *, rag_scope) -> str:
     """Append the RAG grounding nudge to ``nudge`` when the knowledge-base tool
-    is active (search_knowledge_base present and a retrieval scope is set). The
-    date is prefixed when the tool nudge is empty (RAG-only tool set). Returns
-    ``nudge`` unchanged when RAG isn't active."""
+    is active (search_knowledge_base present and a retrieval scope is set).
+
+    When web_search is absent, adds closed-corpus guidance so the Search pill
+    being off cannot be read as permission to answer from the public web. When
+    both tools are present and a project scope is set, tells the model not to
+    treat web_search as an automatic fallback after an empty document search.
+
+    The date is prefixed when the tool nudge is empty (RAG-only tool set).
+    Returns ``nudge`` unchanged when RAG isn't active."""
     tool_names = {(t.get("function") or {}).get("name") for t in (tools or [])}
     if "search_knowledge_base" not in tool_names or not rag_scope:
         return nudge
+    parts: list[str] = []
     if not nudge:
-        date_line = f"The current date is {_date.today().isoformat()}."
-        return date_line + " " + _RAG_GROUNDING_NUDGE
-    return nudge + " " + _RAG_GROUNDING_NUDGE
+        parts.append(f"The current date is {_date.today().isoformat()}.")
+    parts.append(_RAG_GROUNDING_NUDGE)
+    if "web_search" not in tool_names:
+        parts.append(_RAG_CLOSED_CORPUS_NUDGE)
+    elif rag_scope.get("project_id"):
+        parts.append(_RAG_WEB_SEARCH_PRIORITY_NUDGE)
+    rag_text = " ".join(parts)
+    if not nudge:
+        return rag_text
+    return nudge + " " + rag_text
 
 
 # Strip leaked tool-call markup: every shared-parser format plus the leak shapes
