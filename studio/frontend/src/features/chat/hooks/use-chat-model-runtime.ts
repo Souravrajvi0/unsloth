@@ -126,6 +126,7 @@ import {
   applyPerModelConfigToRuntime,
   currentRuntimePerModelConfig,
   isServedByMlx,
+  mirrorLaunchConfigForApiLoad,
   normalizeMaxSeqLength,
   residentIsServedByMlx,
   resolveInitialConfig,
@@ -144,6 +145,8 @@ import type {
 
 export type SelectedModelInput = {
   id: string;
+  /** Per-model settings key; defaults to `id`. Cached repos use repo id while `id` is the load path. */
+  configId?: string;
   /** Sent as model_path in place of the id, which stays the identity the UI shows. */
   loadId?: string | null;
   isLora?: boolean;
@@ -2163,6 +2166,37 @@ export function useChatModelRuntime() {
                     ? "gguf"
                     : "model",
                 ggufVariant: ggufVariant ?? null,
+              });
+            }
+            const configId =
+              typeof selection !== "string"
+                ? (selection.configId ?? modelId)
+                : modelId;
+            const rememberedLaunch = resolveInitialConfig(
+              configId,
+              ggufVariant ?? null,
+            );
+            if (pendingLoadConfig != null || rememberedLaunch.remembered) {
+              const mirrorBase =
+                pendingLoadConfig ?? rememberedLaunch.config;
+              mirrorLaunchConfigForApiLoad({
+                modelId: configId,
+                ggufVariant: ggufVariant ?? null,
+                config: {
+                  ...mirrorBase,
+                  llamaExtraArgs:
+                    loadLlamaExtraArgs !== undefined
+                      ? (loadLlamaExtraArgs ?? [])
+                      : (mirrorBase.llamaExtraArgs ?? null),
+                },
+                eligible:
+                  !nativePathToken &&
+                  !isExternalModelId(configId) &&
+                  !isLora &&
+                  !(loadResponse.is_lora ?? false) &&
+                  !targetIsDiffusion &&
+                  (loadResponse.is_gguf ?? isGguf ?? Boolean(ggufVariant)) &&
+                  !isOllamaLinkPath(configId),
               });
             }
           } catch (error) {

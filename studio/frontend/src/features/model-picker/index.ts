@@ -24,6 +24,7 @@ export { SidebarModelConfig } from "./components/sidebar-model-config";
 export type { ModelPickTarget } from "./components/model-selector/types";
 export {
   fetchModelOverrides,
+  mirrorLaunchConfigForApiLoad,
   modelOverrideKey,
   putModelOverride,
   syncModelOverride,

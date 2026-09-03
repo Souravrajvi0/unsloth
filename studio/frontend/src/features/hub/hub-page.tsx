@@ -1416,6 +1416,7 @@ export function ModelsPage() {
       const hasAppliedConfig = applyModelLoadConfigToRuntime(rememberedConfig);
       void selectModel({
         id: runId,
+        configId: configIdentity,
         ggufVariant: opts.ggufVariant,
         isDownloaded,
         expectedBytes: opts.expectedBytes,
@@ -1567,6 +1568,7 @@ export function ModelsPage() {
       setSettingsTarget(null);
       void selectModel({
         id: target.id,
+        configId: target.configId ?? target.id,
         source: "local",
         ggufVariant: target.ggufVariant ?? undefined,
         isGguf: target.isGguf,

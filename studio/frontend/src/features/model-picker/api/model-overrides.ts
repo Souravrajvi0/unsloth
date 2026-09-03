@@ -15,6 +15,7 @@ import {
 import {
   DEFAULT_PER_MODEL_CONFIG,
   type PerModelConfig,
+  isDefaultConfig,
   normalizePerModelConfig,
 } from "../model-config/per-model-config";
 
@@ -556,6 +557,29 @@ async function sendModelOverride(
       await readFastApiError(res, "Failed to save model settings for the API"),
     );
   }
+}
+
+/**
+ * Mirror a remembered launch config to the server after a successful UI load.
+ *
+ * API auto-switch reads the server override map, not browser localStorage, so a
+ * load that only applied remembered settings locally must still push them here.
+ */
+export function mirrorLaunchConfigForApiLoad(args: {
+  modelId: string;
+  ggufVariant?: string | null;
+  config: PerModelConfig;
+  /** Same gate as ModelConfigPage: GGUF/API-loadable, not a native-path lease. */
+  eligible?: boolean;
+}): void {
+  if (!args.eligible) {
+    return;
+  }
+  const normalized = normalizePerModelConfig(args.config);
+  if (isDefaultConfig(normalized)) {
+    return;
+  }
+  syncModelOverride(args.modelId, args.ggufVariant, normalized);
 }
 
 /**
