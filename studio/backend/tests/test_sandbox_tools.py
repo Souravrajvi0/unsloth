@@ -1529,7 +1529,7 @@ class TestBashBlocklistPosition:
 
     # ---- ANSI-C quoting must not hide a blocked command name ----
     def test_ansi_c_quoted_command_blocked(self):
-        assert "ssh" in self._find()("$'ssh' user@host")
+        # ssh is gated by ssh_policy (approved-server allowlist), not the hard blocklist.
         assert "source" in self._find()("$'source' ./payload")
 
     def test_ansi_c_data_with_newline_is_not_a_command(self):
