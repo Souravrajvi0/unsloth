@@ -19,6 +19,7 @@ import {
   DocumentAttachmentIcon,
   PlusSignIcon,
   Search01Icon,
+  Settings02Icon,
   Upload01Icon,
 } from "@hugeicons/core-free-icons";
 import {
@@ -52,6 +53,7 @@ type SheetView =
   | "sampler"
   | "seed"
   | "llm"
+  | "model"
   | "validator"
   | "expression"
   | "note"
@@ -85,7 +87,12 @@ type BlockSheetProps = {
   onAddToolProfile: () => void;
   onAddExpression: () => void;
   onAddValidator: (
-    type: "validator_python" | "validator_sql" | "validator_oxc",
+    type:
+      | "validator_python"
+      | "validator_sql"
+      | "validator_oxc"
+      | "validator_json"
+      | "validator_markdown",
   ) => void;
   onAddMarkdownNote: () => void;
   onOpenProcessors: () => void;
@@ -122,6 +129,9 @@ function getSheetTitle(sheetView: SheetView): string {
   if (sheetView === "processor") {
     return "Processor blocks";
   }
+  if (sheetView === "model") {
+    return "Models";
+  }
   return "AI generation";
 }
 
@@ -130,6 +140,7 @@ const VIEW_KIND: Record<SheetView, SheetKind | null> = {
   sampler: "sampler",
   seed: "seed",
   llm: "llm",
+  model: "llm",
   validator: "validator",
   expression: "expression",
   note: "note",
@@ -157,6 +168,13 @@ const LLM_SETUP_TYPES = new Set<BlockType>([
   "model_config",
   "tool_config",
 ]);
+const MODEL_SETUP_TYPES = new Set<BlockType>(["model_provider", "model_config"]);
+const MODEL_ROOT_GROUP = {
+  kind: "model" as SheetView,
+  title: "Models",
+  description: "Connect a provider and pick which model powers your AI steps.",
+  icon: Settings02Icon,
+};
 
 function BlockSheetButton({
   icon,
@@ -309,6 +327,10 @@ export function BlockSheet({
     sheetView === "llm"
       ? scopedBlocks.filter((item) => LLM_SETUP_TYPES.has(item.type))
       : [];
+  const modelSetupBlocks =
+    sheetView === "model"
+      ? scopedBlocks.filter((item) => MODEL_SETUP_TYPES.has(item.type))
+      : [];
   const featuredSeedBlock =
     sheetView === "seed" && !hasSearch
       ? scopedBlocks.find((item) => item.type === "seed_unstructured") ?? null
@@ -320,9 +342,15 @@ export function BlockSheet({
 
   const rootGroups = useMemo(() => {
     if (!hasSearch) {
-      return ROOT_GROUPS_WITH_SEED_FIRST;
+      const seedFirst = ROOT_GROUPS_WITH_SEED_FIRST.filter((group) => group.kind === "seed");
+      const rest = ROOT_GROUPS_WITH_SEED_FIRST.filter((group) => group.kind !== "seed");
+      return [...seedFirst, MODEL_ROOT_GROUP, ...rest];
     }
-    return ROOT_GROUPS.filter((group) => {
+    return [
+      ...(matchesSearch(MODEL_ROOT_GROUP.title, MODEL_ROOT_GROUP.description)
+        ? [MODEL_ROOT_GROUP]
+        : []),
+      ...ROOT_GROUPS.filter((group) => {
       if (matchesSearch(group.title, group.description)) {
         return true;
       }
@@ -332,7 +360,8 @@ export function BlockSheet({
       return getBlocksForKind(group.kind).some((item) =>
         matchesSearch(item.title, item.description),
       );
-    });
+    }),
+    ];
   }, [hasSearch, matchesSearch]);
   const showNoMatches =
     (isRootView && hasSearch && rootSearchBlocks.length === 0) ||
@@ -379,7 +408,12 @@ export function BlockSheet({
     }
     if (kind === "validator") {
       onAddValidator(
-        type as "validator_python" | "validator_sql" | "validator_oxc",
+        type as
+          | "validator_python"
+          | "validator_sql"
+          | "validator_oxc"
+          | "validator_json"
+          | "validator_markdown",
       );
       return;
     }
@@ -510,7 +544,10 @@ export function BlockSheet({
                     icon={item.icon}
                     title={item.title}
                     description={item.description}
-                    draggable={item.kind === "expression" || item.kind === "note"}
+                    draggable={
+                      item.kind === "expression" ||
+                      item.kind === "note"
+                    }
                     onDragStart={
                       item.kind === "expression" && expressionBlocks[0]
                         ? buildDragStart("expression", expressionBlocks[0].type)
@@ -524,6 +561,10 @@ export function BlockSheet({
                         : "chevron"
                     }
                     onClick={() => {
+                      if (item.kind === "model") {
+                        onViewChange("model");
+                        return;
+                      }
                       if (item.kind === "seed" && seedBlocks.length === 1) {
                         setSheetOpen(false);
                         onAddSeed(seedBlocks[0].type as SeedBlockType);
@@ -628,6 +669,20 @@ export function BlockSheet({
                   />
                 ))}
               {isScopedBlockView &&
+                sheetView === "model" &&
+                modelSetupBlocks.map((item) => (
+                  <BlockSheetButton
+                    key={item.type}
+                    icon={item.icon}
+                    title={item.title}
+                    description={item.description}
+                    draggable={true}
+                    onDragStart={buildDragStart(item.kind, item.type)}
+                    trailing={getTrailing()}
+                    onClick={() => onBlockClick(item.kind, item.type)}
+                  />
+                ))}
+              {isScopedBlockView &&
                 sheetView === "llm" &&
                 llmSetupBlocks.length > 0 && (
                   <div className="px-3 pt-4 pb-2">
@@ -670,6 +725,7 @@ export function BlockSheet({
               {isScopedBlockView &&
                 sheetView !== "llm" &&
                 sheetView !== "seed" &&
+                sheetView !== "model" &&
                 scopedBlocks.map(
                   (item) => (
                     <BlockSheetButton

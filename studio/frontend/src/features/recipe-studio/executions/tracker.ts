@@ -104,6 +104,7 @@ export async function trackRecipeExecution({
   let lastStatus: RecipeExecutionStatus = initialExecution.status;
   let completedEventPayload: Record<string, unknown> | null = null;
   let latestExecution: RecipeExecutionRecord = initialExecution;
+  let lastDatasetPollAt = 0;
 
   const eventsAbortController = new AbortController();
   void streamRecipeJobEvents({
@@ -220,6 +221,31 @@ export async function trackRecipeExecution({
       onUpsert(latestExecution);
 
       done = isTerminalStatus(mappedStatus);
+      if (!done && Date.now() - lastDatasetPollAt >= 2500) {
+        lastDatasetPollAt = Date.now();
+        try {
+          const datasetResponse = await getRecipeJobDataset(jobId, {
+            limit: DATASET_PAGE_SIZE,
+            offset: 0,
+          });
+          const dataset = normalizeDatasetRows(datasetResponse.dataset);
+          const datasetTotal =
+            typeof datasetResponse.total === "number"
+              ? datasetResponse.total
+              : dataset.length;
+          if (dataset.length > 0 || datasetTotal > 0) {
+            latestExecution = {
+              ...latestExecution,
+              dataset,
+              datasetTotal,
+              datasetPage: 1,
+            };
+            onUpsert(latestExecution);
+          }
+        } catch {
+          // Dataset pages can lag behind status while a run is still warming up.
+        }
+      }
       if (!done) {
         await delay(1200);
       }
