@@ -224,9 +224,12 @@ export async function trackRecipeExecution({
       if (!done && Date.now() - lastDatasetPollAt >= 2500) {
         lastDatasetPollAt = Date.now();
         try {
+          const datasetPage = Math.max(1, latestExecution.datasetPage ?? 1);
+          const datasetPageSize =
+            latestExecution.datasetPageSize ?? DATASET_PAGE_SIZE;
           const datasetResponse = await getRecipeJobDataset(jobId, {
-            limit: DATASET_PAGE_SIZE,
-            offset: 0,
+            limit: datasetPageSize,
+            offset: (datasetPage - 1) * datasetPageSize,
           });
           const dataset = normalizeDatasetRows(datasetResponse.dataset);
           const datasetTotal =
@@ -238,7 +241,8 @@ export async function trackRecipeExecution({
               ...latestExecution,
               dataset,
               datasetTotal,
-              datasetPage: 1,
+              datasetPage,
+              datasetPageSize,
             };
             onUpsert(latestExecution);
           }

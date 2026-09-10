@@ -152,17 +152,31 @@ def _build_text_format_validation_function(format_kind: str):
         values = (
             ["" for _ in range(row_count)]
             if not value_column
-            else ["" if value is None else str(value) for value in df[value_column].tolist()]
+            else [_coerce_validation_value(value) for value in df[value_column].tolist()]
         )
 
-        results = [_validate_text_format(value = value, format_kind = format_kind) for value in values]
+        results = [
+            _validate_text_format(value = value, format_kind = format_kind) for value in values
+        ]
         return pd.DataFrame(results)
 
     _validator.__name__ = f"{format_kind}_format_validator"
     return _validator
 
 
-def _validate_text_format(*, value: str, format_kind: str) -> dict[str, Any]:
+def _coerce_validation_value(value: Any) -> Any:
+    if value is None:
+        return ""
+    if isinstance(value, (dict, list, bool, int, float)):
+        return value
+    return str(value)
+
+
+def _reject_json_constant(constant: str) -> float:
+    raise ValueError(f"Invalid JSON constant: {constant}")
+
+
+def _validate_text_format(*, value: Any, format_kind: str) -> dict[str, Any]:
     if format_kind == "json":
         return _validate_json_text(value)
     if format_kind == "markdown":
@@ -179,28 +193,50 @@ def _validate_text_format(*, value: str, format_kind: str) -> dict[str, Any]:
     }
 
 
-def _validate_json_text(value: str) -> dict[str, Any]:
-    stripped = value.strip()
-    if not stripped:
-        return _invalid_result("JSON value is empty.")
+def _validate_json_text(value: Any) -> dict[str, Any]:
+    if isinstance(value, (dict, list)):
+        payload = value
+    else:
+        stripped = str(value).strip()
+        if not stripped:
+            return _invalid_result("JSON value is empty.")
+        try:
+            payload = json.loads(stripped, parse_constant = _reject_json_constant)
+        except (json.JSONDecodeError, ValueError, RecursionError) as exc:
+            return _invalid_result(str(exc))
     try:
-        json.loads(stripped)
-    except json.JSONDecodeError as exc:
+        json.dumps(payload, allow_nan = False)
+    except (TypeError, ValueError) as exc:
         return _invalid_result(str(exc))
     return _valid_result()
 
 
-def _validate_markdown_text(value: str) -> dict[str, Any]:
-    stripped = value.strip()
+def _markdown_segments_outside_fences(value: str) -> list[str]:
+    segments: list[str] = []
+    cursor = 0
+    in_fence = False
+    for match in _MARKDOWN_FENCE_RE.finditer(value):
+        if not in_fence:
+            segments.append(value[cursor : match.start()])
+        in_fence = not in_fence
+        cursor = match.end()
+    if not in_fence:
+        segments.append(value[cursor:])
+    return segments
+
+
+def _validate_markdown_text(value: Any) -> dict[str, Any]:
+    stripped = str(value).strip()
     if not stripped:
         return _invalid_result("Markdown value is empty.")
     fence_count = len(_MARKDOWN_FENCE_RE.findall(stripped))
     if fence_count % 2 != 0:
         return _invalid_result("Markdown has an unclosed code fence.")
-    if stripped.count("[") != stripped.count("]"):
-        return _invalid_result("Markdown has unbalanced link brackets.")
-    if stripped.count("(") != stripped.count(")"):
-        return _invalid_result("Markdown has unbalanced parentheses.")
+    for segment in _markdown_segments_outside_fences(stripped):
+        if segment.count("[") != segment.count("]"):
+            return _invalid_result("Markdown has unbalanced link brackets.")
+        if segment.count("(") != segment.count(")"):
+            return _invalid_result("Markdown has unbalanced parentheses.")
     return _valid_result()
 
 
