@@ -38,10 +38,6 @@ on:
       - 'tests/version_compat/**'
       - 'pyproject.toml'
       - '.github/workflows/version-compat-ci.yml'
-  schedule:
-    # Daily 06:43 UTC. Catches upstream PyPI releases roughly within
-    # 24 h. Off the :00 / :30 fleet-collision spots.
-    - cron: '43 6 * * *'
   workflow_dispatch:
 
 concurrency:
